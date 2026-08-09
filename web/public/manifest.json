@@ -1,0 +1,10 @@
+{
+  "name": "ASMR Keyboard",
+  "short_name": "ASMR Keys",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0015",
+  "theme_color": "#0a0015",
+  "orientation": "any",
+  "description": "Relaxing 3D ASMR keyboard app with themed keyboards and satisfying click sounds"
+}
