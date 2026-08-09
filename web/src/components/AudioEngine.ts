@@ -1,307 +1,348 @@
-// Web Audio API synthesizer for ASMR keyboard sounds
+// Web Audio API synthesizer — realistic ASMR keyboard sounds per theme
 
 let ctx: AudioContext | null = null;
 
 function getCtx(): AudioContext {
-  if (!ctx) {
-    ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-  }
-  if (ctx.state === "suspended") {
-    ctx.resume();
-  }
+  if (!ctx) ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  if (ctx.state === "suspended") ctx.resume();
   return ctx;
 }
 
 export type KeyType = "letter" | "space" | "enter" | "backspace" | "shift" | "caps";
 export type ThemeId = "honey" | "candy" | "cloud" | "crystal" | "mystery" | "pastel";
 
-// ─── Per-theme sound synthesizers ────────────────────────────────────────────
+// ─── Noise buffer helper ──────────────────────────────────────────────────────
 
-function makeNoise(ac: AudioContext, duration: number): AudioBufferSourceNode {
-  const bufSize = Math.ceil(ac.sampleRate * duration);
-  const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+function makeNoise(ac: AudioContext, seconds: number): AudioBufferSourceNode {
+  const len = Math.ceil(ac.sampleRate * seconds);
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
   const src = ac.createBufferSource();
   src.buffer = buf;
   return src;
 }
 
-// 🍯 HONEY — thick, sticky thock. Deep low-mid thud with a slow gooey tail.
-function playHoney(ac: AudioContext, volume: number, keyType: KeyType) {
-  const now = ac.currentTime;
-  const gain = ac.createGain();
-  gain.connect(ac.destination);
-
-  // Thock body — low-mid thud
-  const osc = ac.createOscillator();
-  const oscGain = ac.createGain();
-  osc.type = "sine";
-  const baseFreq = keyType === "space" ? 55 : keyType === "enter" ? 70 : 90 + Math.random() * 20;
-  osc.frequency.setValueAtTime(baseFreq * 1.8, now);
-  osc.frequency.exponentialRampToValueAtTime(baseFreq, now + 0.04);
-  oscGain.gain.setValueAtTime(0.0, now);
-  oscGain.gain.linearRampToValueAtTime(volume * 0.7, now + 0.003);
-  oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-  osc.connect(oscGain);
-  oscGain.connect(gain);
-  osc.start(now);
-  osc.stop(now + 0.2);
-
-  // Sticky noise burst
-  const noise = makeNoise(ac, 0.08);
-  const noiseFilter = ac.createBiquadFilter();
-  noiseFilter.type = "lowpass";
-  noiseFilter.frequency.value = 900;
-  noiseFilter.Q.value = 1.2;
-  const noiseGain = ac.createGain();
-  noiseGain.gain.setValueAtTime(volume * 0.35, now);
-  noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-  noise.connect(noiseFilter);
-  noiseFilter.connect(noiseGain);
-  noiseGain.connect(gain);
-  noise.start(now);
-  noise.stop(now + 0.08);
-
-  gain.gain.setValueAtTime(1, now);
-}
-
-// 🍬 CANDY — bright, crisp crunch. High-frequency snap with a short sharp attack.
-function playCandy(ac: AudioContext, volume: number, keyType: KeyType) {
-  const now = ac.currentTime;
-
-  // Sharp high-freq click
-  const clickNoise = makeNoise(ac, 0.025);
-  const clickFilter = ac.createBiquadFilter();
-  clickFilter.type = "bandpass";
-  clickFilter.frequency.value = 5500 + Math.random() * 1500;
-  clickFilter.Q.value = 4.0;
-  const clickGain = ac.createGain();
-  clickGain.gain.setValueAtTime(volume * 1.1, now);
-  clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.022);
-  clickNoise.connect(clickFilter);
-  clickFilter.connect(clickGain);
-  clickGain.connect(ac.destination);
-  clickNoise.start(now);
-  clickNoise.stop(now + 0.025);
-
-  // Bright tonal pop
-  const osc = ac.createOscillator();
-  osc.type = "square";
-  const freq = keyType === "space" ? 320 : 420 + Math.random() * 180;
-  osc.frequency.setValueAtTime(freq, now);
-  osc.frequency.exponentialRampToValueAtTime(freq * 0.5, now + 0.03);
-  const oscGain = ac.createGain();
-  oscGain.gain.setValueAtTime(volume * 0.22, now);
-  oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
-  osc.connect(oscGain);
-  oscGain.connect(ac.destination);
-  osc.start(now);
-  osc.stop(now + 0.04);
-
-  // Second crunch layer
-  const crunch = makeNoise(ac, 0.015);
-  const crunchFilter = ac.createBiquadFilter();
-  crunchFilter.type = "highpass";
-  crunchFilter.frequency.value = 7000;
-  const crunchGain = ac.createGain();
-  crunchGain.gain.setValueAtTime(volume * 0.6, now + 0.005);
-  crunchGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
-  crunch.connect(crunchFilter);
-  crunchFilter.connect(crunchGain);
-  crunchGain.connect(ac.destination);
-  crunch.start(now + 0.005);
-  crunch.stop(now + 0.02);
-}
-
-// ☁️ CLOUD — airy, soft, breathlike. Low-passed noise with a gentle sine sigh.
-function playCloud(ac: AudioContext, volume: number, keyType: KeyType) {
-  const now = ac.currentTime;
-
-  // Airy breath noise
-  const noise = makeNoise(ac, 0.28);
+// Coloured noise: run white noise through a cascade of filters
+function makeFilteredNoise(
+  ac: AudioContext,
+  seconds: number,
+  type: BiquadFilterType,
+  freq: number,
+  Q: number
+): { src: AudioBufferSourceNode; filter: BiquadFilterNode } {
+  const src = makeNoise(ac, seconds);
   const filter = ac.createBiquadFilter();
-  filter.type = "lowpass";
-  filter.frequency.value = 800 + Math.random() * 300;
-  filter.Q.value = 0.5;
-  const noiseGain = ac.createGain();
-  noiseGain.gain.setValueAtTime(0.0, now);
-  noiseGain.gain.linearRampToValueAtTime(volume * 0.38, now + 0.018);
-  noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
-  noise.connect(filter);
-  filter.connect(noiseGain);
-  noiseGain.connect(ac.destination);
-  noise.start(now);
-  noise.stop(now + 0.3);
-
-  // Soft sine sigh
-  const osc = ac.createOscillator();
-  osc.type = "sine";
-  const freq = keyType === "space" ? 130 : 180 + Math.random() * 60;
-  osc.frequency.setValueAtTime(freq, now);
-  osc.frequency.linearRampToValueAtTime(freq * 0.75, now + 0.22);
-  const oscGain = ac.createGain();
-  oscGain.gain.setValueAtTime(0.0, now);
-  oscGain.gain.linearRampToValueAtTime(volume * 0.18, now + 0.012);
-  oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-  osc.connect(oscGain);
-  oscGain.connect(ac.destination);
-  osc.start(now);
-  osc.stop(now + 0.25);
+  filter.type = type;
+  filter.frequency.value = freq;
+  filter.Q.value = Q;
+  src.connect(filter);
+  return { src, filter };
 }
 
-// ❄️ CRYSTAL — cold, glassy crunch. Bright high-freq snap + icy ring.
-function playCrystal(ac: AudioContext, volume: number, keyType: KeyType) {
-  const now = ac.currentTime;
+// ─── 🍯 HONEY — satisfying mechanical clicker. Crisp tactile snap + low thock body ──
 
-  // Icy crack noise
-  const noise = makeNoise(ac, 0.03);
-  const crackFilter = ac.createBiquadFilter();
-  crackFilter.type = "bandpass";
-  crackFilter.frequency.value = 8000 + Math.random() * 2000;
-  crackFilter.Q.value = 6.0;
-  const crackGain = ac.createGain();
-  crackGain.gain.setValueAtTime(volume * 0.9, now);
-  crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.028);
-  noise.connect(crackFilter);
-  crackFilter.connect(crackGain);
-  crackGain.connect(ac.destination);
-  noise.start(now);
-  noise.stop(now + 0.03);
+function playHoney(ac: AudioContext, vol: number, keyType: KeyType) {
+  const t = ac.currentTime;
 
-  // Glassy ring tone — high pitched, decays slowly
-  const freq = keyType === "space" ? 900 : 1200 + Math.random() * 600;
-  const osc = ac.createOscillator();
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(freq, now);
-  const oscGain = ac.createGain();
-  oscGain.gain.setValueAtTime(volume * 0.45, now);
-  oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
-  osc.connect(oscGain);
-  oscGain.connect(ac.destination);
-  osc.start(now);
-  osc.stop(now + 0.3);
+  // ① Initial click transient — very short, high-freq burst
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.008, "bandpass", 6000, 8);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 1.6, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.007);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t); src.stop(t + 0.009);
+  }
 
-  // Second harmonic shimmer
-  const osc2 = ac.createOscillator();
-  osc2.type = "sine";
-  osc2.frequency.setValueAtTime(freq * 2.01, now);
-  const osc2Gain = ac.createGain();
-  osc2Gain.gain.setValueAtTime(volume * 0.18, now);
-  osc2Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-  osc2.connect(osc2Gain);
-  osc2Gain.connect(ac.destination);
-  osc2.start(now);
-  osc2.stop(now + 0.2);
+  // ② Thock body — low-mid resonant thud
+  {
+    const osc = ac.createOscillator();
+    osc.type = "sine";
+    const base = keyType === "space" ? 60 : keyType === "enter" ? 75 : 95 + Math.random() * 15;
+    osc.frequency.setValueAtTime(base * 2.2, t);
+    osc.frequency.exponentialRampToValueAtTime(base, t + 0.025);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.9, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t); osc.stop(t + 0.09);
+  }
 
-  // High noise crunch layer
-  const crunch = makeNoise(ac, 0.012);
-  const crunchF = ac.createBiquadFilter();
-  crunchF.type = "highpass";
-  crunchF.frequency.value = 9000;
-  const crunchG = ac.createGain();
-  crunchG.gain.setValueAtTime(volume * 0.5, now + 0.002);
-  crunchG.gain.exponentialRampToValueAtTime(0.001, now + 0.014);
-  crunch.connect(crunchF);
-  crunchF.connect(crunchG);
-  crunchG.connect(ac.destination);
-  crunch.start(now + 0.002);
-  crunch.stop(now + 0.014);
+  // ③ Mid crunch — the "meat" of the click
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.022, "bandpass", 2800, 3.5);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.85, t + 0.001);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.022);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t + 0.001); src.stop(t + 0.024);
+  }
+
+  // ④ Subtle release click (key up feel)
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.006, "highpass", 4500, 5);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.35, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.046);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t + 0.04); src.stop(t + 0.048);
+  }
 }
 
-// 🔮 MYSTERY — soft, ethereal, whispery. Gentle filtered noise with a warm low tone.
-function playMystery(ac: AudioContext, volume: number, keyType: KeyType) {
-  const now = ac.currentTime;
+// ─── ☁️ CLOUD — airy, bushy, cotton-candy soft. Breathy filtered noise, no hard edges ──
 
-  // Whispery noise
-  const noise = makeNoise(ac, 0.22);
-  const filter = ac.createBiquadFilter();
-  filter.type = "bandpass";
-  filter.frequency.value = 600 + Math.random() * 400;
-  filter.Q.value = 1.2;
-  const noiseGain = ac.createGain();
-  noiseGain.gain.setValueAtTime(0.0, now);
-  noiseGain.gain.linearRampToValueAtTime(volume * 0.28, now + 0.015);
-  noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-  noise.connect(filter);
-  filter.connect(noiseGain);
-  noiseGain.connect(ac.destination);
-  noise.start(now);
-  noise.stop(now + 0.25);
+function playCloud(ac: AudioContext, vol: number, keyType: KeyType) {
+  const t = ac.currentTime;
 
-  // Warm low tone
-  const osc = ac.createOscillator();
-  osc.type = "sine";
-  const freq = keyType === "space" ? 160 : 200 + Math.random() * 80;
-  osc.frequency.setValueAtTime(freq, now);
-  osc.frequency.exponentialRampToValueAtTime(freq * 0.82, now + 0.18);
-  const oscGain = ac.createGain();
-  oscGain.gain.setValueAtTime(0.0, now);
-  oscGain.gain.linearRampToValueAtTime(volume * 0.22, now + 0.01);
-  oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-  osc.connect(oscGain);
-  oscGain.connect(ac.destination);
-  osc.start(now);
-  osc.stop(now + 0.22);
+  // ① Main airy breath — low-passed white noise, very soft attack
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.35, "lowpass", 700 + Math.random() * 200, 0.4);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol * 0.42, t + 0.022);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t); src.stop(t + 0.36);
+  }
 
-  // Sub shimmer
-  const osc2 = ac.createOscillator();
-  osc2.type = "triangle";
-  osc2.frequency.setValueAtTime(freq * 1.5, now);
-  const osc2Gain = ac.createGain();
-  osc2Gain.gain.setValueAtTime(volume * 0.1, now + 0.005);
-  osc2Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-  osc2.connect(osc2Gain);
-  osc2Gain.connect(ac.destination);
-  osc2.start(now + 0.005);
-  osc2.stop(now + 0.16);
+  // ② Cottony mid layer — bandpass around 300 Hz, very gentle
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.28, "bandpass", 300, 0.6);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol * 0.28, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t); src.stop(t + 0.3);
+  }
+
+  // ③ Barely-there sine sigh — gives it a faint tonal warmth
+  {
+    const osc = ac.createOscillator();
+    osc.type = "sine";
+    const freq = keyType === "space" ? 110 : 160 + Math.random() * 40;
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.linearRampToValueAtTime(freq * 0.78, t + 0.25);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol * 0.12, t + 0.018);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t); osc.stop(t + 0.26);
+  }
 }
 
-// 🌸 PASTEL — flowery, soft, delicate. Gentle bell-like tone with a soft noise puff.
-function playPastel(ac: AudioContext, volume: number, keyType: KeyType) {
-  const now = ac.currentTime;
+// ─── 🔮 MYSTERY — soft, glowy, whispery. Warm filtered hum with a faint ethereal shimmer ──
 
-  // Soft puff of noise
-  const noise = makeNoise(ac, 0.15);
-  const filter = ac.createBiquadFilter();
-  filter.type = "lowpass";
-  filter.frequency.value = 1800 + Math.random() * 600;
-  filter.Q.value = 0.7;
-  const noiseGain = ac.createGain();
-  noiseGain.gain.setValueAtTime(0.0, now);
-  noiseGain.gain.linearRampToValueAtTime(volume * 0.22, now + 0.01);
-  noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-  noise.connect(filter);
-  filter.connect(noiseGain);
-  noiseGain.connect(ac.destination);
-  noise.start(now);
-  noise.stop(now + 0.16);
+function playMystery(ac: AudioContext, vol: number, keyType: KeyType) {
+  const t = ac.currentTime;
 
-  // Floral bell tone
-  const freq = keyType === "space" ? 420 : 520 + Math.random() * 200;
-  const osc = ac.createOscillator();
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(freq, now);
-  osc.frequency.exponentialRampToValueAtTime(freq * 0.88, now + 0.12);
-  const oscGain = ac.createGain();
-  oscGain.gain.setValueAtTime(volume * 0.32, now);
-  oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-  osc.connect(oscGain);
-  oscGain.connect(ac.destination);
-  osc.start(now);
-  osc.stop(now + 0.24);
+  // ① Whispery noise — narrow bandpass, like a breath through velvet
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.26, "bandpass", 500 + Math.random() * 300, 1.4);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol * 0.3, t + 0.016);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t); src.stop(t + 0.28);
+  }
 
-  // Soft harmonic overtone
-  const osc2 = ac.createOscillator();
-  osc2.type = "sine";
-  osc2.frequency.setValueAtTime(freq * 1.5, now);
-  const osc2Gain = ac.createGain();
-  osc2Gain.gain.setValueAtTime(volume * 0.14, now);
-  osc2Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
-  osc2.connect(osc2Gain);
-  osc2Gain.connect(ac.destination);
-  osc2.start(now);
-  osc2.stop(now + 0.18);
+  // ② Warm glowing tone — sine with slow fade
+  {
+    const freq = keyType === "space" ? 150 : 190 + Math.random() * 70;
+    const osc = ac.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.84, t + 0.22);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol * 0.28, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t); osc.stop(t + 0.24);
+  }
+
+  // ③ Ethereal shimmer — triangle wave an octave up, very faint
+  {
+    const freq = keyType === "space" ? 300 : 380 + Math.random() * 140;
+    const osc = ac.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(freq, t + 0.01);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.9, t + 0.2);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0, t + 0.01);
+    g.gain.linearRampToValueAtTime(vol * 0.1, t + 0.025);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t + 0.01); osc.stop(t + 0.2);
+  }
+}
+
+// ─── ❄️ CRYSTAL — cold, glassy crackle. Icy high-freq snap + long ringing tone ──
+
+function playCrystal(ac: AudioContext, vol: number, keyType: KeyType) {
+  const t = ac.currentTime;
+
+  // ① Hard icy crack — very high freq, extremely short
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.018, "bandpass", 9000 + Math.random() * 2000, 9);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 1.1, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.016);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t); src.stop(t + 0.02);
+  }
+
+  // ② Second crackle layer — slightly lower, gives texture
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.012, "bandpass", 5500 + Math.random() * 1500, 7);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.7, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.014);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t + 0.003); src.stop(t + 0.016);
+  }
+
+  // ③ Glassy ring — high sine, long decay like a crystal glass
+  {
+    const freq = keyType === "space" ? 1100 : 1400 + Math.random() * 700;
+    const osc = ac.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, t);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.55, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t); osc.stop(t + 0.4);
+  }
+
+  // ④ Harmonic overtone — 2× freq, shorter
+  {
+    const freq = keyType === "space" ? 2200 : 2800 + Math.random() * 1400;
+    const osc = ac.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, t);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t); osc.stop(t + 0.22);
+  }
+
+  // ⑤ High noise crunch tail
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.04, "highpass", 8000, 2);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.3, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t + 0.005); src.stop(t + 0.045);
+  }
+}
+
+// ─── 🍬 CANDY — crunchy, crisp, snappy. Like biting hard candy — bright pop + crunch ──
+
+function playCandy(ac: AudioContext, vol: number, keyType: KeyType) {
+  const t = ac.currentTime;
+
+  // ① Hard crunch — wide bandpass noise, punchy
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.03, "bandpass", 4000 + Math.random() * 2000, 3.5);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 1.2, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.028);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t); src.stop(t + 0.032);
+  }
+
+  // ② Bright high crunch layer
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.018, "highpass", 7000, 4);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.75, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.018);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t + 0.002); src.stop(t + 0.02);
+  }
+
+  // ③ Bright tonal pop — square wave, very short
+  {
+    const freq = keyType === "space" ? 350 : 480 + Math.random() * 220;
+    const osc = ac.createOscillator();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.45, t + 0.025);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.18, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.028);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t); osc.stop(t + 0.03);
+  }
+
+  // ④ Mid crunch body
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.022, "bandpass", 1800, 2.5);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.55, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.022);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t); src.stop(t + 0.025);
+  }
+}
+
+// ─── 🌸 PASTEL — clean, normal keyboard feel. Soft thock, balanced, pleasant ──
+
+function playPastel(ac: AudioContext, vol: number, keyType: KeyType) {
+  const t = ac.currentTime;
+
+  // ① Clean click transient
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.01, "bandpass", 3500, 5);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.9, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.009);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t); src.stop(t + 0.011);
+  }
+
+  // ② Balanced thock body
+  {
+    const osc = ac.createOscillator();
+    osc.type = "sine";
+    const base = keyType === "space" ? 70 : keyType === "enter" ? 85 : 105 + Math.random() * 20;
+    osc.frequency.setValueAtTime(base * 1.8, t);
+    osc.frequency.exponentialRampToValueAtTime(base, t + 0.03);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.65, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t); osc.stop(t + 0.11);
+  }
+
+  // ③ Soft mid noise body
+  {
+    const { src, filter } = makeFilteredNoise(ac, 0.025, "bandpass", 1600, 2);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.45, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.024);
+    filter.connect(g); g.connect(ac.destination);
+    src.start(t); src.stop(t + 0.026);
+  }
+
+  // ④ Gentle bell overtone — gives it a slightly floral warmth
+  {
+    const freq = keyType === "space" ? 500 : 640 + Math.random() * 160;
+    const osc = ac.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, t);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol * 0.14, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t); osc.stop(t + 0.2);
+  }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -315,8 +356,8 @@ export function setTheme(theme: ThemeId) {
 export function playKeySound(keyType: KeyType, volume: number, theme?: ThemeId) {
   try {
     const ac = getCtx();
-    const t = theme ?? currentTheme;
-    switch (t) {
+    const th = theme ?? currentTheme;
+    switch (th) {
       case "honey":   playHoney(ac, volume, keyType);   break;
       case "candy":   playCandy(ac, volume, keyType);   break;
       case "cloud":   playCloud(ac, volume, keyType);   break;
@@ -340,17 +381,17 @@ export function startAmbience(theme: ThemeId, volume: number) {
     const ac = getCtx();
     ambienceGain = ac.createGain();
     ambienceGain.gain.setValueAtTime(0, ac.currentTime);
-    ambienceGain.gain.linearRampToValueAtTime(volume * 0.06, ac.currentTime + 1.5);
+    ambienceGain.gain.linearRampToValueAtTime(volume * 0.055, ac.currentTime + 1.5);
     ambienceGain.connect(ac.destination);
 
     ambienceNode = ac.createOscillator();
     ambienceNode.type = "sine";
     ambienceNode.frequency.value =
-      theme === "cloud" ? 60 :
+      theme === "cloud"   ? 55  :
       theme === "crystal" ? 220 :
-      theme === "mystery" ? 80 :
-      theme === "pastel" ? 180 :
-      theme === "candy" ? 440 : 100;
+      theme === "mystery" ? 70  :
+      theme === "pastel"  ? 160 :
+      theme === "candy"   ? 380 : 90;
     ambienceNode.connect(ambienceGain);
     ambienceNode.start();
   } catch (e) {
