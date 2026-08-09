@@ -3,6 +3,8 @@ import type { KeyboardTheme } from "./KeyboardThemes";
 import { Key3D } from "./Key3D";
 import type { KeyType } from "./AudioEngine";
 import { HoneyGoo } from "./HoneyGoo";
+import { Charms } from "./Charms";
+import type { ThemeId } from "./KeyboardThemes";
 
 interface KeyDef {
   label: string;
@@ -58,6 +60,9 @@ const ROW5: KeyDef[] = [
 
 const ALL_ROWS = [ROW1, ROW2, ROW3, ROW4, ROW5];
 
+// Themes that get charm overlays
+const CHARM_THEMES: ThemeId[] = ["cloud", "candy", "crystal", "mystery"];
+
 interface Keyboard3DProps {
   theme: KeyboardTheme;
   volume: number;
@@ -73,6 +78,7 @@ export function Keyboard3D({ theme, volume, rgbEnabled, onKeyPress }: Keyboard3D
   }, [onKeyPress]);
 
   const isHoney = theme.id === "honey";
+  const hasCharms = CHARM_THEMES.includes(theme.id as ThemeId);
 
   return (
     <div
@@ -88,8 +94,11 @@ export function Keyboard3D({ theme, volume, rgbEnabled, onKeyPress }: Keyboard3D
         overflow: "hidden",
       }}
     >
-      {/* Honey goo overlay — always active on honey theme */}
+      {/* Honey goo overlay */}
       {isHoney && <HoneyGoo active={true} />}
+
+      {/* Theme-specific charm overlays */}
+      {hasCharms && <Charms themeId={theme.id as ThemeId} />}
 
       <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", position: "relative", zIndex: 1 }}>
         {ALL_ROWS.map((row, rowIdx) => (
