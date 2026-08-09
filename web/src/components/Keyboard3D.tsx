@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import type { KeyboardTheme } from "./KeyboardThemes";
 import { Key3D } from "./Key3D";
 import type { KeyType } from "./AudioEngine";
+import { HoneyGoo } from "./HoneyGoo";
 
 interface KeyDef {
   label: string;
@@ -44,13 +45,13 @@ const ROW4: KeyDef[] = [
   { label: "V", colorIndex: 5 }, { label: "B", colorIndex: 6 }, { label: "N", colorIndex: 7 },
   { label: "M", colorIndex: 8 }, { label: ",", colorIndex: 9 }, { label: ".", colorIndex: 0 },
   { label: "/", colorIndex: 1 },
-  { label: "Shift", display: "⇧", type: "shift", width: 2.7, colorIndex: 2 },
+  { label: "Shift", display: "⇧", type: "shift", width: 2.3, colorIndex: 2 },
 ];
 
 const ROW5: KeyDef[] = [
   { label: "Ctrl", display: "Ctrl", type: "shift", width: 1.3, colorIndex: 3 },
   { label: "Alt", display: "Alt", type: "shift", width: 1.1, colorIndex: 4 },
-  { label: " ", display: "", type: "space", width: 6.5, colorIndex: 5 },
+  { label: " ", display: "Space", type: "space", width: 5.5, colorIndex: 5 },
   { label: "Alt", display: "Alt", type: "shift", width: 1.1, colorIndex: 6 },
   { label: "Ctrl", display: "Ctrl", type: "shift", width: 1.3, colorIndex: 7 },
 ];
@@ -60,63 +61,56 @@ const ALL_ROWS = [ROW1, ROW2, ROW3, ROW4, ROW5];
 interface Keyboard3DProps {
   theme: KeyboardTheme;
   volume: number;
-  rgbEnabled: boolean;
-  onKeyPress?: (key: string) => void;
+  rgbEnabled?: boolean;
+  onKeyPress?: (label: string) => void;
 }
 
 export function Keyboard3D({ theme, volume, rgbEnabled, onKeyPress }: Keyboard3DProps) {
-  const lastKey = useRef<string>("");
+  const boardRef = useRef<HTMLDivElement>(null);
 
-  const handlePress = useCallback((label: string) => {
-    lastKey.current = label;
+  const handleKey = useCallback((label: string) => {
     onKeyPress?.(label);
   }, [onKeyPress]);
 
+  const isHoney = theme.id === "honey";
+
   return (
     <div
+      ref={boardRef}
       style={{
         background: theme.boardBg,
         border: `2px solid ${theme.boardBorder}`,
-        borderRadius: "1rem",
-        padding: "1.2rem 1rem",
-        display: "inline-flex",
-        flexDirection: "column",
-        gap: "0.35rem",
-        boxShadow: theme.hasGlow
-          ? `0 0 40px ${theme.keyGlow}, 0 20px 60px rgba(0,0,0,0.8)`
-          : "0 20px 60px rgba(0,0,0,0.7)",
+        borderRadius: "1.25rem",
+        padding: "1rem 0.75rem 1.25rem",
+        display: "inline-block",
+        boxShadow: `0 8px 32px rgba(0,0,0,0.4), 0 2px 0 ${theme.boardBorder}`,
         position: "relative",
         overflow: "hidden",
       }}
     >
-      {/* Board shine */}
-      <div style={{
-        position: "absolute",
-        top: 0, left: 0, right: 0,
-        height: "30%",
-        background: "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, transparent 100%)",
-        pointerEvents: "none",
-        borderRadius: "1rem 1rem 0 0",
-      }} />
+      {/* Honey goo overlay — always active on honey theme */}
+      {isHoney && <HoneyGoo active={true} />}
 
-      {ALL_ROWS.map((row, rowIdx) => (
-        <div key={rowIdx} style={{ display: "flex", gap: "0.22rem", alignItems: "center" }}>
-          {row.map((key, keyIdx) => (
-            <Key3D
-              key={`${rowIdx}-${keyIdx}-${key.label}`}
-              label={key.label}
-              displayLabel={key.display ?? key.label}
-              keyType={key.type ?? "letter"}
-              theme={theme}
-              width={key.width ?? 1}
-              volume={volume}
-              onPress={handlePress}
-              colorIndex={key.colorIndex ?? keyIdx}
-              rgbEnabled={rgbEnabled}
-            />
-          ))}
-        </div>
-      ))}
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", position: "relative", zIndex: 1 }}>
+        {ALL_ROWS.map((row, rowIdx) => (
+          <div key={rowIdx} style={{ display: "flex", gap: "0.3rem", justifyContent: "center" }}>
+            {row.map((key, keyIdx) => (
+              <Key3D
+                key={`${rowIdx}-${keyIdx}-${key.label}`}
+                label={key.label}
+                displayLabel={key.display}
+                keyType={key.type ?? "letter"}
+                theme={theme}
+                width={key.width ?? 1}
+                volume={volume}
+                onPress={handleKey}
+                colorIndex={key.colorIndex ?? 0}
+                rgbEnabled={rgbEnabled}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

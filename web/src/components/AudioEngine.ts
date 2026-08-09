@@ -32,8 +32,9 @@ interface SoundProfile {
 
 const themeProfiles: Record<ThemeId, SoundProfile> = {
   honey: {
-    baseFreq: 180, freqVariance: 30, attack: 0.002, decay: 0.08, sustain: 0.1, release: 0.12,
-    noiseAmount: 0.3, toneAmount: 0.5, clickAmount: 0.8, filterFreq: 3000, filterQ: 1.5, pitch: 1.0,
+    // Sharp mechanical clicker — crisp, satisfying
+    baseFreq: 2200, freqVariance: 200, attack: 0.0005, decay: 0.018, sustain: 0.0, release: 0.04,
+    noiseAmount: 0.9, toneAmount: 0.35, clickAmount: 1.4, filterFreq: 7000, filterQ: 3.5, pitch: 1.0,
   },
   candy: {
     baseFreq: 280, freqVariance: 50, attack: 0.001, decay: 0.05, sustain: 0.05, release: 0.08,
@@ -44,205 +45,258 @@ const themeProfiles: Record<ThemeId, SoundProfile> = {
     noiseAmount: 0.6, toneAmount: 0.3, clickAmount: 0.4, filterFreq: 1500, filterQ: 0.8, pitch: 0.8,
   },
   crystal: {
-    baseFreq: 400, freqVariance: 60, attack: 0.001, decay: 0.06, sustain: 0.05, release: 0.15,
-    noiseAmount: 0.15, toneAmount: 0.7, clickAmount: 0.9, filterFreq: 6000, filterQ: 3.0, pitch: 1.5,
+    baseFreq: 400, freqVariance: 60, attack: 0.001, decay: 0.06, sustain: 0.08, release: 0.15,
+    noiseAmount: 0.1, toneAmount: 0.9, clickAmount: 0.5, filterFreq: 8000, filterQ: 3.0, pitch: 1.5,
   },
   mystery: {
-    baseFreq: 90, freqVariance: 20, attack: 0.003, decay: 0.1, sustain: 0.15, release: 0.25,
-    noiseAmount: 0.5, toneAmount: 0.6, clickAmount: 0.7, filterFreq: 2000, filterQ: 2.5, pitch: 0.6,
+    baseFreq: 200, freqVariance: 80, attack: 0.003, decay: 0.1, sustain: 0.15, release: 0.25,
+    noiseAmount: 0.5, toneAmount: 0.6, clickAmount: 0.7, filterFreq: 2500, filterQ: 2.5, pitch: 0.9,
   },
   pastel: {
-    baseFreq: 220, freqVariance: 40, attack: 0.002, decay: 0.07, sustain: 0.1, release: 0.14,
-    noiseAmount: 0.35, toneAmount: 0.45, clickAmount: 0.75, filterFreq: 3500, filterQ: 1.2, pitch: 1.1,
+    baseFreq: 320, freqVariance: 40, attack: 0.002, decay: 0.07, sustain: 0.1, release: 0.12,
+    noiseAmount: 0.3, toneAmount: 0.5, clickAmount: 0.8, filterFreq: 4000, filterQ: 1.8, pitch: 1.1,
   },
 };
 
-const keyMultipliers: Record<KeyType, number> = {
-  letter: 1.0,
-  space: 0.55,
-  enter: 0.75,
-  backspace: 0.85,
-  shift: 0.7,
-  caps: 0.65,
-};
+// ── Honey mechanical clicker ─────────────────────────────────────────────────
+function playClickerSound(keyType: KeyType, volume: number) {
+  const ac = getCtx();
+  const now = ac.currentTime;
+  const master = ac.createGain();
+  master.gain.value = Math.min(volume, 1.0);
+  master.connect(ac.destination);
 
-export function playKeySound(theme: ThemeId, keyType: KeyType, volume: number = 1.0) {
-  try {
-    const ac = getCtx();
-    const profile = themeProfiles[theme];
-    const mult = keyMultipliers[keyType];
-    const now = ac.currentTime;
-    const masterGain = ac.createGain();
-    masterGain.gain.setValueAtTime(volume * 0.7, now);
-    masterGain.connect(ac.destination);
+  // --- Click transient (noise burst through bandpass) ---
+  const bufLen = ac.sampleRate * 0.025;
+  const buf = ac.createBuffer(1, bufLen, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1);
 
-    // Noise burst (the "click" transient)
-    if (profile.noiseAmount > 0) {
-      const bufferSize = ac.sampleRate * 0.05;
-      const buffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1);
-      }
-      const noise = ac.createBufferSource();
-      noise.buffer = buffer;
+  const noiseNode = ac.createBufferSource();
+  noiseNode.buffer = buf;
 
-      const noiseFilter = ac.createBiquadFilter();
-      noiseFilter.type = "bandpass";
-      noiseFilter.frequency.setValueAtTime(profile.filterFreq * mult, now);
-      noiseFilter.Q.setValueAtTime(profile.filterQ, now);
+  // High bandpass → crisp click
+  const bp = ac.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.frequency.value = keyType === "space" ? 900 : keyType === "enter" ? 1100 : 1600 + Math.random() * 400;
+  bp.Q.value = 2.2;
 
-      const noiseGain = ac.createGain();
-      noiseGain.gain.setValueAtTime(profile.noiseAmount * profile.clickAmount, now);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + profile.decay * 2);
+  const noiseGain = ac.createGain();
+  noiseGain.gain.setValueAtTime(1.2 * volume, now);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.022);
 
-      noise.connect(noiseFilter);
-      noiseFilter.connect(noiseGain);
-      noiseGain.connect(masterGain);
-      noise.start(now);
-      noise.stop(now + profile.decay * 2 + 0.01);
-    }
+  noiseNode.connect(bp);
+  bp.connect(noiseGain);
+  noiseGain.connect(master);
+  noiseNode.start(now);
+  noiseNode.stop(now + 0.025);
 
-    // Tonal component
-    if (profile.toneAmount > 0) {
-      const freq = (profile.baseFreq + (Math.random() - 0.5) * profile.freqVariance) * mult * profile.pitch;
+  // --- Tone body (short pitched thunk) ---
+  const osc = ac.createOscillator();
+  osc.type = "square";
+  const baseFreq = keyType === "space" ? 160 : keyType === "enter" ? 200 : 320 + Math.random() * 80;
+  osc.frequency.setValueAtTime(baseFreq * 1.8, now);
+  osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.7, now + 0.012);
 
-      const osc = ac.createOscillator();
-      osc.type = keyType === "space" ? "sine" : keyType === "crystal" ? "triangle" : "triangle";
-      osc.frequency.setValueAtTime(freq, now);
-      osc.frequency.exponentialRampToValueAtTime(freq * 0.7, now + profile.decay);
+  const oscFilter = ac.createBiquadFilter();
+  oscFilter.type = "lowpass";
+  oscFilter.frequency.value = 3500;
+  oscFilter.Q.value = 1.0;
 
-      const toneFilter = ac.createBiquadFilter();
-      toneFilter.type = "lowpass";
-      toneFilter.frequency.setValueAtTime(profile.filterFreq * 1.5, now);
+  const oscGain = ac.createGain();
+  oscGain.gain.setValueAtTime(0.28 * volume, now);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
 
-      const toneGain = ac.createGain();
-      toneGain.gain.setValueAtTime(0.001, now);
-      toneGain.gain.linearRampToValueAtTime(profile.toneAmount * 0.6, now + profile.attack);
-      toneGain.gain.exponentialRampToValueAtTime(profile.toneAmount * profile.sustain, now + profile.attack + profile.decay);
-      toneGain.gain.exponentialRampToValueAtTime(0.001, now + profile.attack + profile.decay + profile.release);
+  osc.connect(oscFilter);
+  oscFilter.connect(oscGain);
+  oscGain.connect(master);
+  osc.start(now);
+  osc.stop(now + 0.04);
 
-      osc.connect(toneFilter);
-      toneFilter.connect(toneGain);
-      toneGain.connect(masterGain);
-      osc.start(now);
-      osc.stop(now + profile.attack + profile.decay + profile.release + 0.05);
-    }
+  // --- Bottom thud (low sine punch) ---
+  const thud = ac.createOscillator();
+  thud.type = "sine";
+  const thudFreq = keyType === "space" ? 55 : keyType === "enter" ? 70 : 90 + Math.random() * 20;
+  thud.frequency.setValueAtTime(thudFreq * 2.5, now);
+  thud.frequency.exponentialRampToValueAtTime(thudFreq, now + 0.015);
 
-    // Sub thud for space/enter
-    if (keyType === "space" || keyType === "enter") {
-      const subOsc = ac.createOscillator();
-      subOsc.type = "sine";
-      subOsc.frequency.setValueAtTime(60 * mult, now);
-      subOsc.frequency.exponentialRampToValueAtTime(30, now + 0.1);
+  const thudGain = ac.createGain();
+  thudGain.gain.setValueAtTime(0.5 * volume, now);
+  thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
 
-      const subGain = ac.createGain();
-      subGain.gain.setValueAtTime(0.4, now);
-      subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+  thud.connect(thudGain);
+  thudGain.connect(master);
+  thud.start(now);
+  thud.stop(now + 0.045);
 
-      subOsc.connect(subGain);
-      subGain.connect(masterGain);
-      subOsc.start(now);
-      subOsc.stop(now + 0.2);
-    }
+  // --- Release tick (upstroke click) ---
+  setTimeout(() => {
+    const ac2 = getCtx();
+    const t = ac2.currentTime;
+    const relBuf = ac2.createBuffer(1, Math.floor(ac2.sampleRate * 0.012), ac2.sampleRate);
+    const rd = relBuf.getChannelData(0);
+    for (let i = 0; i < rd.length; i++) rd[i] = (Math.random() * 2 - 1);
 
-    // Mystery theme: add a shimmer
-    if (theme === "mystery") {
-      const shimOsc = ac.createOscillator();
-      shimOsc.type = "sine";
-      shimOsc.frequency.setValueAtTime(800 + Math.random() * 400, now);
-      shimOsc.frequency.exponentialRampToValueAtTime(200, now + 0.3);
+    const relNoise = ac2.createBufferSource();
+    relNoise.buffer = relBuf;
 
-      const shimGain = ac.createGain();
-      shimGain.gain.setValueAtTime(0.15, now);
-      shimGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    const relBp = ac2.createBiquadFilter();
+    relBp.type = "bandpass";
+    relBp.frequency.value = 2400;
+    relBp.Q.value = 3;
 
-      shimOsc.connect(shimGain);
-      shimGain.connect(masterGain);
-      shimOsc.start(now);
-      shimOsc.stop(now + 0.35);
-    }
+    const relGain = ac2.createGain();
+    relGain.gain.setValueAtTime(0.35 * volume, t);
+    relGain.gain.exponentialRampToValueAtTime(0.001, t + 0.012);
 
-    // Crystal: add harmonic sparkle
-    if (theme === "crystal") {
-      const sparkOsc = ac.createOscillator();
-      sparkOsc.type = "sine";
-      sparkOsc.frequency.setValueAtTime(1200 + Math.random() * 600, now);
+    const relMaster = ac2.createGain();
+    relMaster.gain.value = Math.min(volume, 1.0);
+    relMaster.connect(ac2.destination);
 
-      const sparkGain = ac.createGain();
-      sparkGain.gain.setValueAtTime(0.2, now);
-      sparkGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    relNoise.connect(relBp);
+    relBp.connect(relGain);
+    relGain.connect(relMaster);
+    relNoise.start(t);
+    relNoise.stop(t + 0.013);
+  }, 80 + Math.random() * 20);
+}
 
-      sparkOsc.connect(sparkGain);
-      sparkGain.connect(masterGain);
-      sparkOsc.start(now);
-      sparkOsc.stop(now + 0.15);
-    }
+// ── Generic theme sound ──────────────────────────────────────────────────────
+function playThemeSound(themeId: ThemeId, keyType: KeyType, volume: number) {
+  const ac = getCtx();
+  const profile = themeProfiles[themeId];
+  const now = ac.currentTime;
 
-  } catch (e) {
-    // Audio not supported
+  const masterGain = ac.createGain();
+  masterGain.gain.value = Math.min(volume, 1.0);
+  masterGain.connect(ac.destination);
+
+  const keyMultiplier =
+    keyType === "space" ? 0.7 :
+    keyType === "enter" ? 0.85 :
+    keyType === "backspace" ? 0.9 :
+    keyType === "shift" || keyType === "caps" ? 0.95 : 1.0;
+
+  const freq = (profile.baseFreq + (Math.random() - 0.5) * profile.freqVariance) * profile.pitch * keyMultiplier;
+
+  // Noise layer
+  if (profile.noiseAmount > 0) {
+    const bufferSize = ac.sampleRate * 0.15;
+    const noiseBuffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+
+    const noiseSource = ac.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+
+    const noiseFilter = ac.createBiquadFilter();
+    noiseFilter.type = "bandpass";
+    noiseFilter.frequency.value = profile.filterFreq;
+    noiseFilter.Q.value = profile.filterQ;
+
+    const noiseGain = ac.createGain();
+    noiseGain.gain.setValueAtTime(profile.noiseAmount * profile.clickAmount * volume, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + profile.decay + profile.release);
+
+    noiseSource.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(masterGain);
+    noiseSource.start(now);
+    noiseSource.stop(now + profile.decay + profile.release + 0.05);
+  }
+
+  // Tone layer
+  if (profile.toneAmount > 0) {
+    const osc = ac.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.5, now + profile.decay);
+
+    const oscFilter = ac.createBiquadFilter();
+    oscFilter.type = "lowpass";
+    oscFilter.frequency.value = profile.filterFreq * 0.8;
+
+    const oscGain = ac.createGain();
+    oscGain.gain.setValueAtTime(0, now);
+    oscGain.gain.linearRampToValueAtTime(profile.toneAmount * volume, now + profile.attack);
+    oscGain.gain.exponentialRampToValueAtTime(profile.sustain * profile.toneAmount * volume + 0.001, now + profile.attack + profile.decay);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, now + profile.attack + profile.decay + profile.release);
+
+    osc.connect(oscFilter);
+    oscFilter.connect(oscGain);
+    oscGain.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + profile.attack + profile.decay + profile.release + 0.05);
   }
 }
 
-// Ambient drone
-let ambientSource: OscillatorNode | null = null;
-let ambientGain: GainNode | null = null;
+// ── Public API ───────────────────────────────────────────────────────────────
+export function playKeySound(themeId: ThemeId, keyType: KeyType, volume: number) {
+  try {
+    if (themeId === "honey") {
+      playClickerSound(keyType, volume);
+    } else {
+      playThemeSound(themeId, keyType, volume);
+    }
+  } catch (e) {
+    console.warn("Audio error:", e);
+  }
+}
 
-export function startAmbience(theme: ThemeId, volume: number = 0.15) {
+// ── Ambience ─────────────────────────────────────────────────────────────────
+let ambienceNode: AudioBufferSourceNode | null = null;
+let ambienceGain: GainNode | null = null;
+
+export function startAmbience(themeId: ThemeId, volume: number) {
   stopAmbience();
   try {
     const ac = getCtx();
-    const now = ac.currentTime;
+    const bufferSize = ac.sampleRate * 4;
+    const buffer = ac.createBuffer(2, bufferSize, ac.sampleRate);
 
-    const freqs: Record<ThemeId, number[]> = {
-      honey: [55, 110, 165],
-      candy: [220, 330, 440],
-      cloud: [40, 80, 120],
-      crystal: [440, 880, 1320],
-      mystery: [30, 60, 90],
-      pastel: [110, 220, 330],
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buffer.getChannelData(ch);
+      let b0 = 0, b1 = 0, b2 = 0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + white * 0.0555179;
+        b1 = 0.99332 * b1 + white * 0.0750759;
+        b2 = 0.96900 * b2 + white * 0.1538520;
+        data[i] = (b0 + b1 + b2 + white * 0.0362) / 7;
+      }
+    }
+
+    const themeFreq: Record<ThemeId, number> = {
+      honey: 400, candy: 800, cloud: 200, crystal: 1200, mystery: 300, pastel: 600,
     };
 
-    ambientGain = ac.createGain();
-    ambientGain.gain.setValueAtTime(0, now);
-    ambientGain.gain.linearRampToValueAtTime(volume, now + 1.5);
-    ambientGain.connect(ac.destination);
+    const filter = ac.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = themeFreq[themeId];
+    filter.Q.value = 0.5;
 
-    const reverb = ac.createConvolver();
-    const rLen = ac.sampleRate * 2;
-    const rBuf = ac.createBuffer(2, rLen, ac.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const d = rBuf.getChannelData(ch);
-      for (let i = 0; i < rLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / rLen, 2);
-    }
-    reverb.buffer = rBuf;
-    reverb.connect(ambientGain);
+    ambienceGain = ac.createGain();
+    ambienceGain.gain.value = volume * 0.08;
 
-    freqs[theme].forEach((freq, i) => {
-      const osc = ac.createOscillator();
-      osc.type = i === 0 ? "sine" : "triangle";
-      osc.frequency.setValueAtTime(freq, now);
-      const g = ac.createGain();
-      g.gain.setValueAtTime(0.08 / (i + 1), now);
-      osc.connect(g);
-      g.connect(reverb);
-      osc.start(now);
-      // store ref for cleanup
-      if (i === 0) ambientSource = osc;
-    });
-  } catch (e) {}
+    ambienceNode = ac.createBufferSource();
+    ambienceNode.buffer = buffer;
+    ambienceNode.loop = true;
+
+    ambienceNode.connect(filter);
+    filter.connect(ambienceGain);
+    ambienceGain.connect(ac.destination);
+    ambienceNode.start();
+  } catch (e) {
+    console.warn("Ambience error:", e);
+  }
 }
 
 export function stopAmbience() {
   try {
-    if (ambientGain) {
-      const ac = getCtx();
-      ambientGain.gain.linearRampToValueAtTime(0, ac.currentTime + 0.8);
-    }
-    setTimeout(() => {
-      try { ambientSource?.stop(); } catch (e) {}
-      ambientSource = null;
-      ambientGain = null;
-    }, 900);
-  } catch (e) {}
+    ambienceNode?.stop();
+    ambienceNode?.disconnect();
+    ambienceGain?.disconnect();
+  } catch {}
+  ambienceNode = null;
+  ambienceGain = null;
 }
