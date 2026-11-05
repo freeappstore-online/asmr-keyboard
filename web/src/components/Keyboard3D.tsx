@@ -95,7 +95,7 @@ export function Keyboard3D({ theme, volume, rgbEnabled, onKeyPress }: Keyboard3D
       }}
     >
       {/* Honey goo overlay */}
-      {isHoney && <HoneyGoo active={true} />}
+      {isHoney && <HoneyGoo />}
 
       {/* Theme-specific charm overlays */}
       {hasCharms && <Charms themeId={theme.id as ThemeId} />}

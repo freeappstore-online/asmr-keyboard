@@ -89,7 +89,7 @@ export default function App() {
         e.key === "Backspace" ? "backspace" as const :
         e.key === "Shift" ? "shift" as const :
         e.key === "CapsLock" ? "caps" as const : "letter" as const;
-      playKeySound(activeTheme, keyType, state.volume);
+      playKeySound(keyType, state.volume, activeTheme);
 
       setState(prev => {
         let newText = prev.typedText;
@@ -152,7 +152,6 @@ export default function App() {
   return (
     <HomeScreen
       state={state}
-      onUpdate={update}
       onSelectTheme={(id) => { setActiveTheme(id); setScreen("play"); }}
       onToggleFavorite={toggleFavorite}
       screen={screen}
@@ -163,10 +162,9 @@ export default function App() {
 
 // ─── Home Screen ─────────────────────────────────────────────────────────────
 function HomeScreen({
-  state, onUpdate, onSelectTheme, onToggleFavorite, screen, setScreen
+  state, onSelectTheme, onToggleFavorite, screen, setScreen
 }: {
   state: AppState;
-  onUpdate: (p: Partial<AppState>) => void;
   onSelectTheme: (id: ThemeId) => void;
   onToggleFavorite: (id: ThemeId) => void;
   screen: Screen;

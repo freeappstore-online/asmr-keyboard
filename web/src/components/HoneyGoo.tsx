@@ -192,7 +192,7 @@ function drawBlob(ctx: CanvasRenderingContext2D, b: Blob) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function HoneyGoo({ active }: { active: boolean }) {
+export function HoneyGoo() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef<{
     drops: Drop[];

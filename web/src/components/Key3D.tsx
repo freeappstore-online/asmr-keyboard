@@ -42,7 +42,7 @@ export function Key3D({
     if (disabled) return;
     setPressed(true);
     setGlowing(true);
-    playKeySound(theme.id, keyType, volume);
+    playKeySound(keyType, volume, theme.id);
     onPress?.(label);
 
     if (pressTimer.current) clearTimeout(pressTimer.current);
