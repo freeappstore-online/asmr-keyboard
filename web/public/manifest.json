@@ -2,9 +2,32 @@
   "name": "ASMR Keyboard",
   "short_name": "ASMR Keys",
   "start_url": "/",
+  "id": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0a0015",
   "theme_color": "#0a0015",
   "orientation": "any",
-  "description": "Relaxing 3D ASMR keyboard app with themed keyboards and satisfying click sounds"
+  "description": "Relaxing 3D ASMR keyboard app with themed keyboards and satisfying click sounds",
+  "min_viewport_width": 320,
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/maskable-icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
 }
