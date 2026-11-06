@@ -8,7 +8,6 @@
     "dev": "pnpm --filter @asmr-keyboard/web dev",
     "build": "pnpm --filter @asmr-keyboard/web build",
     "preview": "pnpm --filter @asmr-keyboard/web preview",
-    "typecheck": "pnpm --filter @asmr-keyboard/web exec tsc -b",
-    "test": "pnpm --filter @asmr-keyboard/web test"
+    "typecheck": "pnpm --filter @asmr-keyboard/web exec tsc -b"
   }
 }
