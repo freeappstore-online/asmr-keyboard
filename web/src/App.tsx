@@ -659,14 +659,15 @@ function PlayScreen({
         flex: 1,
         display: "flex",
         alignItems: "center",
-        justifyContent: "center",
         padding: "0.5rem 0.5rem 0.75rem",
         position: "relative",
         zIndex: 5,
         overflowX: "auto",
         overflowY: "hidden",
       }}>
+        {/* Auto margins center the board but, unlike justify-content, keep its left edge scrollable when it overflows */}
         <div style={{
+          margin: "0 auto",
           transform: "perspective(900px) rotateX(7deg)",
           transformOrigin: "center bottom",
           filter: `drop-shadow(0 25px 50px rgba(0,0,0,0.9))`,
